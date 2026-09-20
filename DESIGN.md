@@ -219,3 +219,23 @@ wakeups from `voluntary_ctxt_switches`. Force has 2 cores.
 So the real cost while playing is ~5%, higher than upstream's "2-3%" claim, and it is the `usleep(100)`
 loop. Target for the rework: under 0.5% playing, near 0 idle. Pre-rework binary built from source:
 `bin/euclidier-baseline` (armhf, not yet compared against the deployed one).
+
+## Progress (2026-09-20)
+
+Done on `force-rework`, deployed and user-verified on the Force (locked to beat under live edits):
+- **A. Stateless step position** (`eqseq.cpp tick()`), song position 0xF2 + continue 0xFB, mutex,
+  `doSync` default off (edits immediate; CC 50 re-enables quantize). Steps now fire exactly on the tick grid
+  (upstream fired one tick early after the first step; ~10 ms at 120 BPM).
+- **B. Event-driven main loop**: condition variable, waits to the next note-off deadline or indefinitely.
+  Gotcha found: deadlines must only be counted while `started` (note-offs are only processed then), or a
+  stale `__OFF` makes it spin.
+
+| State | Before | After |
+|---|---|---|
+| Idle | ~0.2%, 197 wakeups/s | 0%, 0 wakeups/s |
+| Playing (ext clock) | ~5.3%, ~6040 wakeups/s | **~0.43%** (13 ticks/30s), 73 wakeups/s |
+
+Deploy notes: the device has `libasound.so.2` but no `libncurses.so.5`; the code doesn't use ncurses, so
+the build simply doesn't link it (dynamic link is fine). Original upstream binary is kept on the SD card as
+`Euclidier/euclidier.orig`. Not done yet: C (dormant CC/internal-clock check, both paths still compile and
+internal clock keeps the 100 us poll), D (control socket), E (GUI/widget), F (MidiLoop rebind).
