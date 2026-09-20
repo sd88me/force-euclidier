@@ -2,6 +2,7 @@
  The 8 Track Euclidean Sequencer Main Program
  ***************************************************************** */
 #include <mutex>
+#include <condition_variable>
 #include "eqseq.h"
 #include <unistd.h>
 #include <sys/stat.h>
@@ -45,7 +46,17 @@ float BPM = 120.00;
 int getOffset();
 float syncDiv = 3;
 bool doSync = false; // master-sync quantize (CC 50); off = edits apply immediately (safe: step position is stateless)
-std::mutex engineMutex; // guards lane state: MIDI callback thread vs main loop
+std::mutex engineMutex;
+std::condition_variable engineCv; // wakes the main loop (event-driven: no polling)
+bool engineWake = false;
+struct WakeMain // set at scope exit of onMIDI: tell the main loop something changed
+{
+    ~WakeMain()
+    {
+        engineWake = true;
+        engineCv.notify_one();
+    }
+}; // guards lane state: MIDI callback thread vs main loop
 long long pendingTick = 0; // last song position (0xF2) in clock ticks
 const string BANK = "BANK.bin";
 
@@ -276,8 +287,34 @@ int main(int argc, char *argv[])
             }
         }
 
-        lk.unlock();
-        usleep(SLEEP_UNIT);
+        if (started && !extClock) // dormant internal clock needs the fine-grained poll
+        {
+            lk.unlock();
+            usleep(SLEEP_UNIT);
+            continue;
+        }
+        // Event-driven: sleep until the next pending note-off (or patch-recall expiry),
+        // or indefinitely; onMIDI() wakes us for every incoming message.
+        long long dl = 0;
+        for (int i = 0; started && i < SEQS; i++) // note-offs are only processed while started
+        {
+            long long o = SQ[i].nextOff();
+            if (o > 0 && (dl == 0 || o < dl))
+                dl = o;
+        }
+        if (loading != 0 && (dl == 0 || loading < dl))
+            dl = loading;
+        if (!engineWake)
+        {
+            if (dl == 0)
+                engineCv.wait(lk, [] { return engineWake; });
+            else
+            {
+                long long w = dl - getUS();
+                engineCv.wait_for(lk, std::chrono::microseconds(w < 50 ? 50 : w), [] { return engineWake; });
+            }
+        }
+        engineWake = false;
     }
 
     return 0;
@@ -333,6 +370,7 @@ void clear()
 void onMIDI(double deltatime, std::vector<unsigned char> *message, void * /*userData*/) // handles incomind midi
 {
     std::lock_guard<std::mutex> lock(engineMutex);
+    WakeMain wake;
 
     unsigned char byte0 = (int)message->at(0);
     unsigned char typ = byte0 & 0xF0;
