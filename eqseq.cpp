@@ -13,25 +13,17 @@ EQSEQ::EQSEQ()
 }
 void EQSEQ::sync()
 {
-    int max = this->loop == 0 ? this->steps : std::min(this->steps, this->loop);
-    if (this->autosync || this->_step >= max)
-    {
-
-        this->_step = 0;
-        this->killHanging();
-    }
+    // Step position is derived from the global tick count (see tick()), so parameter
+    // edits never need to re-align lanes. Kept for API compatibility.
 }
 void EQSEQ::updateSeq()
 {
-    this->sync();
     this->SEQ = BJLUND::bjlund(this->pulses, this->steps); // generate sequence
     if (this->shift > 0)                                   // rotate sequence
     {
         int shift = this->shift > this->SEQ.size() ? this->shift % this->SEQ.size() : this->shift;
         std::rotate(this->SEQ.begin(), this->SEQ.begin() + this->SEQ.size() - shift, this->SEQ.end());
     }
-
-    this->sync();
 }
 void EQSEQ::print()
 {
@@ -83,14 +75,17 @@ void EQSEQ::tick(long long _tick, long long ts) // tick is a midi clock pulse (2
 {
 
     int div = this->getDiv();
-    int step = _tick == 0 ? 0 : (_tick + 1) % ((24 * 4 / div));
-    if (_tick == 0)
-        sstep = 0;
-    if (step == 0) // valid timed step
+    int tps = 24 * 4 / div; // clock ticks per step
+    if (_tick % tps == 0)   // valid timed step
     {
-        //= (_tick) / (24 * 4 / div);
+        // Stateless position: a pure function of the transport tick count, so editing
+        // steps/fill/shift/loop/div never needs a resync or transport restart.
+        long long n = _tick / tps;
+        long long modulus = this->loop > 0 ? this->loop : this->steps;
+        int size = (int)this->SEQ.size();
+        _step = size > 0 ? (int)((n % modulus) % size) : 0;
 
-        if (this->SEQ.at(_step) == 1) // pulse note (active)
+        if (size > 0 && this->SEQ.at(_step) == 1) // pulse note (active)
         {
             long long interval = this->interval();
 
@@ -134,16 +129,6 @@ void EQSEQ::tick(long long _tick, long long ts) // tick is a midi clock pulse (2
         }
 
         __lastpulse = ts;
-        _step++;
-        sstep += 1;
-
-        if (_step == this->SEQ.size())
-            _step = 0;
-        if (sstep > 0 && this->loop > 0 && sstep % (this->loop) == 0)
-        {
-            _step = 0;
-            //   cout << "sstep " << sstep << endl;
-        }
     }
 }
 void EQSEQ::clock(long long ts) // triggered every 100 microseconds (1/10 ms)

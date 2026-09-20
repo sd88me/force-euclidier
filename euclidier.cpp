@@ -1,6 +1,7 @@
 /*******************************************************************
  The 8 Track Euclidean Sequencer Main Program
  ***************************************************************** */
+#include <mutex>
 #include "eqseq.h"
 #include <unistd.h>
 #include <sys/stat.h>
@@ -30,6 +31,7 @@ void handleClockMessage(unsigned char message);
 void pulse();
 void updateBPM(float bpm);
 void clockStart();
+void clockContinue();
 bool pendingSync = false;
 long long getUS();
 void sendTicks();
@@ -42,7 +44,9 @@ bool autosync = true;
 float BPM = 120.00;
 int getOffset();
 float syncDiv = 3;
-bool doSync = true;
+bool doSync = false; // master-sync quantize (CC 50); off = edits apply immediately (safe: step position is stateless)
+std::mutex engineMutex; // guards lane state: MIDI callback thread vs main loop
+long long pendingTick = 0; // last song position (0xF2) in clock ticks
 const string BANK = "BANK.bin";
 
 void clockStop();
@@ -242,6 +246,7 @@ int main(int argc, char *argv[])
         {
             loading = 0;
         }
+        std::unique_lock<std::mutex> lk(engineMutex);
         if (started)
         {
             if (!extClock) // generate pulse
@@ -271,6 +276,7 @@ int main(int argc, char *argv[])
             }
         }
 
+        lk.unlock();
         usleep(SLEEP_UNIT);
     }
 
@@ -326,12 +332,20 @@ void clear()
 
 void onMIDI(double deltatime, std::vector<unsigned char> *message, void * /*userData*/) // handles incomind midi
 {
+    std::lock_guard<std::mutex> lock(engineMutex);
 
     unsigned char byte0 = (int)message->at(0);
     unsigned char typ = byte0 & 0xF0;
     uint size = message->size();
     // cout << "message " << byte0 << endl;
 
+    if (byte0 == 0xF2 && size >= 3) // song position pointer (units of 6 clocks)
+    {
+        pendingTick = ((long long)message->at(1) | ((long long)message->at(2) << 7)) * 6;
+        if (started && extClock)
+            tick = pendingTick; // locate while running
+        return;
+    }
     if (size == 1) // system realtime message
     {
         handleClockMessage(message->at(0));
@@ -786,6 +800,10 @@ void handleClockMessage(unsigned char message)
         if (extClock)
             clockStart();
         return;
+    case 251: // continue: resume from the last song position
+        if (extClock && !started)
+            clockContinue();
+        return;
     case 252:
         clockStop();
         return;
@@ -831,8 +849,16 @@ void pulse() // used to compute bpm and send clock message to sequencer for sync
 
     updateBPM(BPM);
 }
+void clockContinue()
+{
+    tick = pendingTick;
+    lastPulse = 0;
+    started = true;
+    setSleep();
+}
 void clockStart()
 {
+    pendingTick = 0;
 
     if (!bgprocess)
         std::cout << "Clock Started"
