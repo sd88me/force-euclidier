@@ -53,6 +53,8 @@ public:
     bool clockSync = true;
     bool enabled = false;
     void update();
+    const vector<int> &pattern() const { return SEQ; }
+    int playStep() const { return _step; }
     long long nextOff() { return __OFF; } // absolute time (us) of the pending note-off, 0 = none
 
     void updateSeq();

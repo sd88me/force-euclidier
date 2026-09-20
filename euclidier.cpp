@@ -2,6 +2,11 @@
  The 8 Track Euclidean Sequencer Main Program
  ***************************************************************** */
 #include <mutex>
+#include <thread>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <sys/stat.h>
+#include <string.h>
 #include <condition_variable>
 #include "eqseq.h"
 #include <unistd.h>
@@ -152,9 +157,17 @@ bool QPROCESSING = false;
 const unsigned char SEQS = 8;
 
 EQSEQ *SQ = new EQSEQ[8]; // creante the 8 track sequencer in an array
+string ctrlSockPath = "/tmp/euclidier_ctrl.sock";
+void startCtrlSocket();
 int main(int argc, char *argv[])
 {
-    bgprocess = argc > 1 && string(argv[argc - 1]) == "-v";
+    for (int a = 1; a < argc; a++)
+    {
+        if (string(argv[a]) == "-v")
+            bgprocess = true;
+        else if (string(argv[a]) == "--ctrl-sock" && a + 1 < argc)
+            ctrlSockPath = argv[++a];
+    }
     // || string(argv[0]) == "/media/662522/AddOns/nodeServer/modules/euclidier";
 
     srand(time(NULL));
@@ -248,6 +261,7 @@ int main(int argc, char *argv[])
     sleep(1);
     //    loadPatch(0);
     printAll(false);
+    startCtrlSocket();
     long long last = 0;
 
     while (true) // the main loop
@@ -367,10 +381,15 @@ void clear()
     cout << "  ************************************" << endl;
 }
 
+void handleMidi(std::vector<unsigned char> *message); // body below; caller holds engineMutex
 void onMIDI(double deltatime, std::vector<unsigned char> *message, void * /*userData*/) // handles incomind midi
 {
     std::lock_guard<std::mutex> lock(engineMutex);
     WakeMain wake;
+    handleMidi(message);
+}
+void handleMidi(std::vector<unsigned char> *message) // shared by the MIDI callback and the control socket
+{
 
     unsigned char byte0 = (int)message->at(0);
     unsigned char typ = byte0 & 0xF0;
@@ -1430,4 +1449,185 @@ void RandomizeLane(int lane)
     //  resync(true, true);
 
     //  cout << "REad " << (int)E.lane[0].pulses << endl;
+}
+
+/* ------------------------------------------------------------------------
+ * Control socket (force-shadow GUI). One request per connection, same text
+ * protocol as force-acid/force-maze:  "SET <key> <value>\n" -> "OK\n"|"ERR\n",
+ * "GET <key>\n" -> "<value>\n".  Every SET is turned into the equivalent
+ * MIDI CC and run through handleMidi(), so socket and MIDI can never diverge.
+ * Keys: l<1-8>_<param> or sel_<param> (the GUI-selected lane):
+ *   enable note div steps fill shift gate ch vel velh loop mode(0=note,1=drum)
+ *   GET only: note_txt div_txt info pattern
+ * Globals: sel preset preset_load preset_save rand_lane rand_go
+ *   GET only: sel_name preset_txt preset_list rand_lane_txt transport
+ * Not exposed: CC track modes, internal clock (dormant, MIDI-only).
+ * --------------------------------------------------------------------- */
+int selLane = 0;
+static const char *DIV_TXT[] = {"1/16", "1/16", "1/8", "1/4", "1/2", "1", "1/32", "1/24", "1/12", "1/6", "1/3"};
+static const char *RAND_TXT[] = {"ALL", "LANE 1", "LANE 2", "LANE 3", "LANE 4", "LANE 5", "LANE 6", "LANE 7", "LANE 8", "ALL BUT 1", "ALL BUT 5"};
+
+static void ctrlMidi(unsigned char cc, unsigned char val)
+{
+    std::vector<unsigned char> m = {0xB0, cc, val};
+    handleMidi(&m);
+}
+static int laneCC(int i, const string &p) // CC number for a lane parameter, -1 = unknown
+{
+    if (p == "enable") return i * 10 + 1;
+    if (p == "note") return i * 10 + 2;
+    if (p == "div") return i * 10 + 3;
+    if (p == "steps") return i == 6 ? 69 : i * 10 + 4;
+    if (p == "fill") return i * 10 + 5;
+    if (p == "shift") return i * 10 + 6;
+    if (p == "gate") return i == 0 ? 9 : i * 10 + 7;
+    if (p == "ch") return i * 10 + 8;
+    if (p == "vel") return 81 + i;
+    if (p == "velh") return 91 + i;
+    if (p == "loop") return 101 + i;
+    if (p == "mode") return 111 + i;
+    return -1;
+}
+static string noteName(int n)
+{
+    static const char *N[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+    return string(N[n % 12]) + std::to_string(n / 12 - 2);
+}
+static bool splitKey(const string &key, int &lane, string &param)
+{
+    if (key.rfind("sel_", 0) == 0)
+    {
+        lane = selLane;
+        param = key.substr(4);
+        return true;
+    }
+    if (key.size() > 3 && key[0] == 'l' && key[1] >= '1' && key[1] <= '8' && key[2] == '_')
+    {
+        lane = key[1] - '1';
+        param = key.substr(3);
+        return true;
+    }
+    return false;
+}
+static string ctrlGet(const string &key)
+{
+    if (key == "sel") return std::to_string(selLane);
+    if (key == "sel_name") return "LANE " + std::to_string(selLane + 1);
+    if (key == "preset") return std::to_string(currSlot);
+    if (key == "preset_txt") return "SLOT " + std::to_string(currSlot + 1);
+    if (key == "rand_lane") return std::to_string(RANDLANE);
+    if (key == "rand_lane_txt") return RAND_TXT[limit(RANDLANE, 0, 10)];
+    if (key == "transport")
+    {
+        char b[32];
+        snprintf(b, sizeof(b), started ? "RUN %d" : "STOP", (int)(BPM + 0.5f));
+        return b;
+    }
+    if (key == "preset_list")
+    {
+        string j = "[";
+        for (int i = 0; i < 128; i++)
+            j += string(i ? "," : "") + "{\"name\":\"SLOT " + std::to_string(i + 1) + "\"}";
+        return j + "]";
+    }
+    int i;
+    string p;
+    if (!splitKey(key, i, p)) return "ERR";
+    EQSEQ &q = SQ[i];
+    if (p == "enable") return q.enabled ? "1" : "0";
+    if (p == "note") return std::to_string(q.note);
+    if (p == "div") return std::to_string(q.div);
+    if (p == "steps") return std::to_string(q.steps);
+    if (p == "fill") return std::to_string(q.pulses);
+    if (p == "shift") return std::to_string(q.shift);
+    if (p == "gate") return std::to_string(q.gate);
+    if (p == "ch") return std::to_string(q.ch);
+    if (p == "vel") return std::to_string(q.vel);
+    if (p == "velh") return std::to_string(q.velh);
+    if (p == "loop") return std::to_string(q.loop);
+    if (p == "mode") return q.mode == 2 ? "1" : "0";
+    if (p == "note_txt") return noteName(q.note);
+    if (p == "div_txt") return DIV_TXT[limit(q.div, 0, 10)];
+    if (p == "info")
+    {
+        string r = std::to_string(q.steps) + "/" + std::to_string(q.pulses) + " SH" + std::to_string(q.shift);
+        if (q.loop > 0) r += " LP" + std::to_string(q.loop);
+        return r;
+    }
+    if (p == "pattern") // steps|bits|play|loop|enabled|selected
+    {
+        string r = std::to_string(q.steps) + "|";
+        const vector<int> &sq = q.pattern();
+        for (size_t k = 0; k < sq.size(); k++)
+            r += string(k ? "," : "") + (sq[k] ? "1" : "0");
+        return r + "|" + std::to_string(q.playStep()) + "|" + std::to_string(q.loop) + "|" + (q.enabled ? "1" : "0") + "|" + (i == selLane ? "1" : "0");
+    }
+    return "ERR";
+}
+static bool ctrlSet(const string &key, int v)
+{
+    if (key == "sel") { selLane = limit(v, 0, 7); return true; }
+    if (key == "preset") { ctrlMidi(20, limit(v, 0, 127)); return true; }
+    if (key == "preset_load") { ctrlMidi(29, 127); return true; }
+    if (key == "preset_save") { ctrlMidi(30, 127); return true; }
+    if (key == "rand_lane") { ctrlMidi(89, limit(v, 0, 10)); return true; }
+    if (key == "rand_go") { ctrlMidi(90, 126); return true; }
+    int i;
+    string p;
+    if (!splitKey(key, i, p)) return false;
+    int cc = laneCC(i, p);
+    if (cc < 0) return false;
+    if (p == "enable") v = v ? 127 : 0;
+    if (p == "mode") v = v ? 2 : 1; // NOTE/DRUM only from the GUI
+    ctrlMidi((unsigned char)cc, (unsigned char)limit(v, 0, 127));
+    return true;
+}
+static void ctrlThread(int lfd)
+{
+    for (;;)
+    {
+        int c = accept(lfd, NULL, NULL);
+        if (c < 0)
+            continue;
+        struct timeval tv = {0, 200 * 1000};
+        setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        char buf[256];
+        ssize_t n = recv(c, buf, sizeof(buf) - 1, 0);
+        string reply = "ERR";
+        if (n > 0)
+        {
+            buf[n] = 0;
+            char *nl = strchr(buf, '\n');
+            if (nl) *nl = 0;
+            char cmd[8] = {0}, key[64] = {0}, val[64] = {0};
+            int f = sscanf(buf, "%7s %63s %63s", cmd, key, val);
+            std::lock_guard<std::mutex> lock(engineMutex);
+            if (f >= 2 && string(cmd) == "GET")
+                reply = ctrlGet(key);
+            else if (f >= 3 && string(cmd) == "SET" && ctrlSet(key, (int)atof(val)))
+                reply = "OK";
+            engineWake = true;
+            engineCv.notify_one();
+        }
+        reply += "\n";
+        send(c, reply.c_str(), reply.size(), MSG_NOSIGNAL);
+        close(c);
+    }
+}
+void startCtrlSocket()
+{
+    unlink(ctrlSockPath.c_str());
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) return;
+    struct sockaddr_un a;
+    memset(&a, 0, sizeof(a));
+    a.sun_family = AF_UNIX;
+    strncpy(a.sun_path, ctrlSockPath.c_str(), sizeof(a.sun_path) - 1);
+    if (bind(fd, (struct sockaddr *)&a, sizeof(a)) != 0 || listen(fd, 8) != 0)
+    {
+        close(fd);
+        return;
+    }
+    chmod(ctrlSockPath.c_str(), 0666);
+    std::thread(ctrlThread, fd).detach();
 }
