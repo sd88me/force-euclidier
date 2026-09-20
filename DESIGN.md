@@ -1,6 +1,6 @@
 # Euclidier — Force rework + shadow-mode GUI: design & plan
 
-Status: **PLAN + SETUP (2026-09-20). Design is final (hybrid GUI chosen); engine work not started beyond setup.** This file is
+Status: **IMPLEMENTED and user-verified on the Force (2026-09-20).** Engine rework, control socket, `euclid` widget, GUI page and MidiLoop rebind are live. The sections below record the plan and decisions; see the Progress sections at the end for what was done.
 the pick-up-later record of decisions made in the planning session. Upstream is
 https://github.com/intelliriffer/EUCLIDIER-CONSOLE (v0.1.9, by Amit Talwar / intelliriffer);
 this checkout at `/home/sam/EUCLIDIER-CONSOLE` is the working copy for our changes.
