@@ -1,0 +1,23 @@
+{
+  "NAME": "Euclidier",
+  "DESCRIPTION": "A guiless Euclidean Note Sequencer for Force.\nPlease Read the Readme for Details",
+  "PROCESSNAME": "euclidier",
+  "DIRNAME": "Euclidier",
+  "FILENAME": "euclidier",
+  "BACKGROUND": true,
+  "AUTOLAUNCHABLE": true,
+  "ARGUMENTS": [
+    {
+      "NAME": "use -v to hide output",
+      "VALUE": "-v"
+    },
+    {
+      "NAME": "ctrl-sock flag",
+      "VALUE": "--ctrl-sock"
+    },
+    {
+      "NAME": "control socket path",
+      "VALUE": "/tmp/euclidier_ctrl.sock"
+    }
+  ]
+}
