@@ -205,3 +205,17 @@ Do this **last**, after the page is live-tested, or SCENE-6 would open an empty 
 - Whether master-sync quantize should remain user-visible in the GUI (currently not planned).
 - Does the Force actually send 0xF2 SPP on locate / loop? Song position support is **decided: yes**
   (tick = SPP*6, cheap given the stateless counter); verify on device with a MIDI monitor.
+
+## Baseline measurements (2026-09-20, unmodified upstream v0.1.9 on the Force, 192.168.1.44)
+
+Method: `/proc/<pid>/stat` utime+stime over 30 s (CLK_TCK=100, so ticks/30s / 30 = % of one core);
+wakeups from `voluntary_ctxt_switches`. Force has 2 cores.
+
+| State | CPU (one core) | Wakeups/s |
+|---|---|---|
+| Idle, no clock | ~0.2% | ~197 |
+| Playing (ext clock from Force) | **~5.3%** (158 ticks/30s) | ~6,040 |
+
+So the real cost while playing is ~5%, higher than upstream's "2-3%" claim, and it is the `usleep(100)`
+loop. Target for the rework: under 0.5% playing, near 0 idle. Pre-rework binary built from source:
+`bin/euclidier-baseline` (armhf, not yet compared against the deployed one).
