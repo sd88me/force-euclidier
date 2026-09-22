@@ -1,15 +1,17 @@
 # Euclidier (Force Shadow Fork)
 
-An 8-lane MIDI Euclidean note/CC sequencer for Akai Force / MPC, Raspberry Pi and macOS (Intel).
+An 8-lane MIDI Euclidean note/CC sequencer for Akai Force / MPC (MockbaMod).
 
 **This is a fork.** [intelliriffer/EUCLIDIER-CONSOLE](https://github.com/intelliriffer/EUCLIDIER-CONSOLE)
 (by Amit Talwar) is the original, platform-agnostic sequencer controlled entirely over MIDI CC, with
-no GUI. This fork, [sd88me/force-euclidier](https://github.com/sd88me/force-euclidier) (branch
-`force-rework`), targets the Akai Force specifically: the engine was reworked so parameter edits
-never need a transport stop/start, CPU use while playing dropped from ~5.3% to ~0.4%, and it adds a
-Unix control socket plus a touchscreen "shadow mode" GUI page. The original MIDI CC interface is
-unchanged and still works exactly as before — the fork is additive, not a replacement protocol. If
-you just want the original cross-platform sequencer, use the upstream repo instead.
+no GUI, and also runs on Raspberry Pi and macOS. This fork,
+[sd88me/force-euclidier](https://github.com/sd88me/force-euclidier) (branch `force-rework`), is
+**Akai Force / MPC (MockbaMod) only** — Raspberry Pi and macOS builds were dropped to keep this repo
+focused on one platform. The engine was reworked so parameter edits never need a transport
+stop/start, CPU use while playing dropped from ~5.3% to ~0.4%, and it adds a Unix control socket plus
+a touchscreen "shadow mode" GUI page. The original MIDI CC interface is unchanged and still works
+exactly as before — the fork is additive, not a replacement protocol. If you want Raspberry Pi or
+macOS support, use the upstream repo instead.
 
 ## What Euclidier does
 
@@ -42,7 +44,6 @@ The shadow-mode GUI page (Akai Force touchscreen, `SHIFT+SCENE-6`), three tabs:
 - 128 preset slots (save/load/program-change), with feedback to the controller on channel 16.
 - Randomizer, internal or external clock, realtime note-triggered transpose/octave shift, velocity
   sense, chord-pad progression files.
-- Runs on Akai Force/MPC, Raspberry Pi, or macOS (Intel).
 
 **This fork adds:**
 - **No resync needed.** Step position is derived from the transport's tick count, so editing
@@ -79,7 +80,7 @@ worth); reach slots 57–128 over MIDI (CC 20 select, CC 29 load, CC 30 save, or
 CC track modes (3/4) and the internal clock still exist in the engine but aren't reachable from the
 GUI or the control socket — set them over MIDI CC if you need them (see the CC map below).
 
-### MIDI CC control (any platform)
+### MIDI CC control
 
 Works identically to upstream, with or without the shadow GUI. A Force MIDI track template (the
 `.xtk` file in this repo's root) is included with all parameters named and mapped:
@@ -160,15 +161,12 @@ step counts for longer patterns, and try a loop point a few steps past the total
 
 ## Requirements
 
-- **Akai Force or MPC** with SSH access via a firmware mod (e.g. MockbaMod), for GUI use and for
-  building/deploying on-device.
+- **Akai Force or MPC** with SSH access via a firmware mod (MockbaMod), for building/deploying
+  on-device. This fork does not build or run anywhere else.
 - **[force-shadow](https://github.com/sd88me/force-shadow)** add-on installed, only if you want the
   touchscreen GUI — the engine and MIDI CC interface work standalone without it.
-- Otherwise: a Raspberry Pi or macOS (Intel) with ALSA/CoreMIDI, no GUI, MIDI CC only.
 
 ## Installation
-
-### Akai Force / MPC (MockbaMod)
 
 1. Build (see below) or download a prebuilt `euclidier` binary for armhf.
 2. Copy `euclidier`, `addon/NSMODULE.json`, and (if using the GUI) `addon/shadow_page.conf` into
@@ -177,19 +175,11 @@ step counts for longer patterns, and try a loop point a few steps past the total
    `AddOns/Euclidier/euclidier -v --ctrl-sock /tmp/euclidier_ctrl.sock`.
 4. For the shadow GUI: install force-shadow separately, then open the page with `SHIFT+SCENE-6`.
 
-### Raspberry Pi / macOS (standalone, MIDI CC only)
-
-1. Build with `compile_pi.sh` (Raspberry Pi) or `compile_mac.sh` (macOS, Intel).
-2. Run the resulting binary over SSH or in a terminal — it creates two virtual MIDI ports
-   ("Euclidier") for input/output.
-3. Build your own MIDI control surface against the CC map above, or adapt the Force track template.
-
 ## Building from source
 
 - **Force/MPC (armhf):** `build/build.sh [outname]` — builds in a Docker container (`linux/arm/v7`,
   QEMU-emulated), output in `bin/`. First run builds the Docker image, which is slow; subsequent runs
   reuse it.
-- **Raspberry Pi / macOS:** `compile_pi.sh` / `compile_mac.sh` (g++ with ALSA/CoreMIDI support).
 - **Shadow GUI widget** (force-shadow's `euclid` widget) and the generated `addon/shadow_page.conf`
   (via `scripts/gen_shadow_page.py`) are built and tested in the
   [force-shadow](https://github.com/sd88me/force-shadow) repo — see its own README for the widget
@@ -199,9 +189,8 @@ step counts for longer patterns, and try a loop point a few steps past the total
 
 ```
 euclidier.cpp, eqseq.cpp/.h, bjlund.cpp/.h   Engine: control socket, sequencer state, Euclidean generator
-RtMidi.cpp/.h, RtError.h                     Cross-platform MIDI I/O (RtMidi)
-build/build.sh                               Force (armhf) Docker build
-compile_pi.sh, compile_mac.sh                Raspberry Pi / macOS build scripts
+RtMidi.cpp/.h, RtError.h                     MIDI I/O (RtMidi; only the Linux/ALSA backend is used here)
+build/build.sh                               Force (armhf) Docker build -- the only supported build
 addon/NSMODULE.json                          MockbaMod add-on manifest (process name, launch args)
 addon/shadow_page.conf                       Generated shadow GUI page (do not hand-edit)
 scripts/gen_shadow_page.py                   Generates addon/shadow_page.conf
