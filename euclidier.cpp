@@ -1457,13 +1457,19 @@ void RandomizeLane(int lane)
  * "GET <key>\n" -> "<value>\n".  Every SET is turned into the equivalent
  * MIDI CC and run through handleMidi(), so socket and MIDI can never diverge.
  * Keys: l<1-8>_<param> or sel_<param> (the GUI-selected lane):
- *   enable note div steps fill shift gate ch vel velh loop mode(0=note,1=drum)
+ *   enable note div steps fill shift gate ch vel velh loop mode(0=note,1=drum) toggle(idx, SET only)
  *   GET only: note_txt div_txt info pattern
- * Globals: sel preset preset_load preset_save rand_lane rand_go
+ * Globals: sel preset preset_load preset_save rand_lane rand_go rand_l<1-8>
  *   GET only: sel_name preset_txt preset_list rand_lane_txt transport
+ * `l<N>_toggle`/`sel_toggle` (SET, value = step index) and `rand_l<N>` (multi-select
+ * randomize lane picker) have no MIDI CC equivalent -- GUI-only, socket-only.
  * Not exposed: CC track modes, internal clock (dormant, MIDI-only).
  * --------------------------------------------------------------------- */
 int selLane = 0;
+static bool randMask[8] = {false, false, false, false, false, false, false, false};
+// One page of the PRESETS list widget (cols=8 rows=7, see scripts/gen_shadow_page.py); the bank
+// still has 128 slots, load/save by number still reach all of them, only the browsable list is capped.
+static const int PRESET_LIST_MAX = 56;
 static const char *DIV_TXT[] = {"1/16", "1/16", "1/8", "1/4", "1/2", "1", "1/32", "1/24", "1/12", "1/6", "1/3"};
 static const char *RAND_TXT[] = {"ALL", "LANE 1", "LANE 2", "LANE 3", "LANE 4", "LANE 5", "LANE 6", "LANE 7", "LANE 8", "ALL BUT 1", "ALL BUT 5"};
 
@@ -1517,6 +1523,8 @@ static string ctrlGet(const string &key)
     if (key == "preset_txt") return "SLOT " + std::to_string(currSlot + 1);
     if (key == "rand_lane") return std::to_string(RANDLANE);
     if (key == "rand_lane_txt") return RAND_TXT[limit(RANDLANE, 0, 10)];
+    if (key.size() == 7 && key.rfind("rand_l", 0) == 0 && key[6] >= '1' && key[6] <= '8')
+        return randMask[key[6] - '1'] ? "1" : "0";
     if (key == "transport")
     {
         char b[32];
@@ -1525,9 +1533,12 @@ static string ctrlGet(const string &key)
     }
     if (key == "preset_list")
     {
+        // Names left blank: the GUI's `numbered=1` prefixes each tile with its slot number
+        // (see gen_shadow_page.py) -- "SLOT 10" truncated to "SLOT 1" in an 8-col tile at
+        // scale 1.5 (10px/char, ~69px budget), making two-digit slots collide visually.
         string j = "[";
-        for (int i = 0; i < 128; i++)
-            j += string(i ? "," : "") + "{\"name\":\"SLOT " + std::to_string(i + 1) + "\"}";
+        for (int i = 0; i < PRESET_LIST_MAX; i++)
+            j += string(i ? "," : "") + "{\"name\":\"\"}";
         return j + "]";
     }
     int i;
@@ -1571,10 +1582,27 @@ static bool ctrlSet(const string &key, int v)
     if (key == "preset_load") { ctrlMidi(29, 127); return true; }
     if (key == "preset_save") { ctrlMidi(30, 127); return true; }
     if (key == "rand_lane") { ctrlMidi(89, limit(v, 0, 10)); return true; }
-    if (key == "rand_go") { ctrlMidi(90, 126); return true; }
+    if (key.size() == 7 && key.rfind("rand_l", 0) == 0 && key[6] >= '1' && key[6] <= '8')
+    {
+        randMask[key[6] - '1'] = v != 0;
+        return true;
+    }
+    if (key == "rand_go")
+    {
+        loading = getUS() + (1000 * 100);
+        bool any = false;
+        for (int i = 0; i < 8; i++)
+            if (randMask[i]) { RandomizeLane(i); any = true; }
+        if (!any)
+            for (int i = 0; i < 8; i++)
+                RandomizeLane(i); // nothing picked -> randomize all, same default as before
+        printAll(true);
+        return true;
+    }
     int i;
     string p;
     if (!splitKey(key, i, p)) return false;
+    if (p == "toggle") { SQ[i].toggleStep(v); return true; }
     int cc = laneCC(i, p);
     if (cc < 0) return false;
     if (p == "enable") v = v ? 127 : 0;

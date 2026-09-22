@@ -61,6 +61,7 @@ public:
     void print();
     void reset(bool force);
     void sync();
+    void toggleStep(int idx); // manual tap-to-toggle from the shadow GUI; wiped by the next updateSeq()
 
     EQSEQ();
     void setBPM(float newbpm);

@@ -25,6 +25,12 @@ void EQSEQ::updateSeq()
         std::rotate(this->SEQ.begin(), this->SEQ.begin() + this->SEQ.size() - shift, this->SEQ.end());
     }
 }
+void EQSEQ::toggleStep(int idx)
+{
+    if (idx < 0 || idx >= (int)this->SEQ.size())
+        return;
+    this->SEQ[idx] = this->SEQ[idx] ? 0 : 1;
+}
 void EQSEQ::print()
 {
     vector<int> PSEQ;

@@ -19,18 +19,18 @@ page=6
 ctrl_sock=/tmp/euclidier_ctrl.sock
 display_name="EUCLIDIER"
 style=td3
-theme_bg=c6e89a
-theme_panel=c6e89a
+theme_bg=8fd94a
+theme_panel=8fd94a
 theme_line=0e110e
 theme_ink=f3f0e6
 theme_ink_dim=9a9d92
 theme_ink_faint=5f635a
-theme_accent=c6e89a
-theme_accent_hi=e4f7c4
+theme_accent=8fd94a
+theme_accent_hi=b9ec7c
 theme_knob_face=2c312c
 theme_knob_ring=050505
-theme_bar=a9cc7a
-theme_seg_active=c6e89a
+theme_bar=6fbf2e
+theme_seg_active=8fd94a
 theme_seg_inactive=2c312c
 theme_seg_active_tx=1f2320
 theme_btn_text=1f2320
@@ -43,7 +43,7 @@ theme_btn_bg=f3f0e6
 theme_chrome_ink=1f2320
 theme_go_on=7ad34d
 theme_go_off=ff6b4a
-theme_tabs=a9cc7a
+theme_tabs=6fbf2e
 int_values=1
 engine_process_name=euclidier
 engine_nsmodule_path=/media/662522/AddOns/Euclidier/NSMODULE.json
@@ -91,13 +91,17 @@ add('toggle cx=1170 cy=650 label="ON" key=sel_enable on=1')
 add('[tab PRESETS]')
 topbar()
 add(f'frame x=36 y={Y} w=800 h={H} title="PRESET SLOTS"')
-add('list x=56 y=140 w=760 h=556 key=preset items=preset_list sel=preset cols=8 rows=7 th=56 gap=6 jump=0 colmajor=0 numbered=0 scale=1.5')
+add('list x=56 y=140 w=760 h=556 key=preset items=preset_list sel=preset cols=8 rows=7 th=56 gap=6 jump=0 colmajor=0 numbered=1 scale=1.5')
 add(f'frame x=856 y={Y} w=388 h=200 title="PRESET"')
 add('button cx=950 cy=200 label="LOAD" key=preset_load')
 add('button cx=1150 cy=200 label="SAVE" key=preset_save')
-add(f'frame x=856 y=300 w=388 h=412 title="RANDOMIZE"')
-add('stepper cx=1050 cy=420 w=320 h=48 label="LANES" key=rand_lane get=rand_lane_txt idx=rand_lane min=0 max=10 numbered=0')
-add('button cx=1050 cy=560 label="RANDOMIZE" key=rand_go')
+add(f'frame x=856 y=300 w=388 h=412 title="RANDOMIZE  (pick lanes, tap RANDOMIZE; none picked = all)"')
+for i in range(8):
+    n = i + 1
+    cx = 900 + (i % 4) * 100
+    cy = 380 + (i // 4) * 90
+    add(f'toggle cx={cx} cy={cy} label="{n}" key=rand_l{n} on=0')
+add('button cx=1050 cy=610 label="RANDOMIZE" key=rand_go')
 
 OUT.parent.mkdir(exist_ok=True)
 OUT.write_text(HEADER + "\n" + "\n".join(L) + "\n")
