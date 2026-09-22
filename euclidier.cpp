@@ -761,7 +761,10 @@ void handleMidi(std::vector<unsigned char> *message) // shared by the MIDI callb
             }
             if (trk == 11 && cmd > 0 && cmd <= 8) // set Modes 1-3
             {
+                unsigned char wasMode = SQ[cmd - 1].mode;
                 SQ[cmd - 1].setMode(VAL); // 0=off
+                if (SQ[cmd - 1].mode == 2 && wasMode != 2)
+                    SQ[cmd - 1].note = 35 + cmd; // entering drum mode: default note to this lane's own GM drum slot (lane 1 -> 36, ...)
                 printAll();
             }
         }

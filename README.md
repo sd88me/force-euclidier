@@ -57,6 +57,8 @@ The shadow-mode GUI page (Akai Force touchscreen, `SHIFT+SCENE-6`), three tabs:
 - **Shadow-mode touchscreen GUI** (needs [force-shadow](https://github.com/sd88me/force-shadow)):
   LANES (all 8 lanes, tap a step to toggle it, tap a row to select it), DETAIL (one lane's full
   parameter set), and PRESETS (one page of 56 slots + an 8-button multi-lane randomizer).
+- **Drum mode note default.** Switching a lane into drum mode sets its note to that lane's own GM
+  drum slot (lane 1 → 36, lane 2 → 37, … lane 8 → 43) instead of leaving whatever note it had before.
 
 ## Using Euclidier
 
@@ -111,7 +113,7 @@ Works identically to upstream, with or without the shadow GUI. A Force MIDI trac
 | 81–88 | ✓ | Base value (velocity, or CC base value), default 96 |
 | 91–98 | ✓ | Value-alt: note mode = humanize range (0–50) added to base velocity; CC mode 1 = second CC value sent after gate; CC mode 2 = random value between base and alt |
 | 101–108 | ✓ | Loop point (0 = off; < steps shortens the pattern; > steps creates a polyrhythm) |
-| 111–118 | ✓ | Track mode: 1 = note, 2 = drum, 3/4 = CC (dormant/MIDI-only in the shadow GUI) |
+| 111–118 | ✓ | Track mode: 1 = note, 2 = drum, 3/4 = CC (dormant/MIDI-only in the shadow GUI). Switching a lane into drum mode defaults its note to that lane's own GM drum slot (lane 1 → 36, lane 2 → 37, … lane 8 → 43) if it wasn't already in drum mode — you can still set a different note afterward. |
 
 Time divisions (CC 3,13,…,73 and the DETAIL tab's DIV stepper), value → label:
 
