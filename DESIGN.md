@@ -3,11 +3,13 @@
 Status: **IMPLEMENTED and user-verified on the Force (2026-09-20).** Engine rework, control socket, `euclid` widget, GUI page and MidiLoop rebind are live. The sections below record the plan and decisions; see the Progress sections at the end for what was done.
 the pick-up-later record of decisions made in the planning session. Upstream is
 https://github.com/intelliriffer/EUCLIDIER-CONSOLE (v0.1.9, by Amit Talwar / intelliriffer);
-this checkout at `/home/sam/EUCLIDIER-CONSOLE` is the working copy for our changes.
+this checkout at `/home/sam/EUCLIDIER-CONSOLE` is the working copy for our changes (local directory
+name kept as-is; only the GitHub repo was renamed).
 Euclidier binary is already deployed on the Force SD card at
 `/media/662522/AddOns/Euclidier/euclidier`.
 
-Fork: https://github.com/sd88me/EUCLIDIER-CONSOLE (origin); upstream = intelliriffer/EUCLIDIER-CONSOLE. Work branch: `force-rework`.
+Fork: https://github.com/sd88me/force-euclidier (origin, renamed from EUCLIDIER-CONSOLE 2026-09-22);
+upstream = intelliriffer/EUCLIDIER-CONSOLE. Work branch: `force-rework`.
 Build: `build/build.sh [name]` (armhf Docker, output in `bin/`). Force IP: 192.168.1.44 (DHCP, has changed before).
 
 Related: `~/force-shadow/DESIGN.md`, `~/force-shadow/docs/adding-a-page.md` (page file format,

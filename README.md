@@ -4,7 +4,7 @@ An 8-lane MIDI Euclidean note/CC sequencer for Akai Force / MPC, Raspberry Pi an
 
 **This is a fork.** [intelliriffer/EUCLIDIER-CONSOLE](https://github.com/intelliriffer/EUCLIDIER-CONSOLE)
 (by Amit Talwar) is the original, platform-agnostic sequencer controlled entirely over MIDI CC, with
-no GUI. This fork, [sd88me/EUCLIDIER-CONSOLE](https://github.com/sd88me/EUCLIDIER-CONSOLE) (branch
+no GUI. This fork, [sd88me/force-euclidier](https://github.com/sd88me/force-euclidier) (branch
 `force-rework`), targets the Akai Force specifically: the engine was reworked so parameter edits
 never need a transport stop/start, CPU use while playing dropped from ~5.3% to ~0.4%, and it adds a
 Unix control socket plus a touchscreen "shadow mode" GUI page. The original MIDI CC interface is
