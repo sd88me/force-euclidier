@@ -212,5 +212,7 @@ DESIGN.md                                    Architecture notes for the Force re
 
 ## License
 
-No license file is present in the upstream repository; this fork has not added one. Treat this code
-as all-rights-reserved pending clarification from the upstream author.
+MIT — see [LICENSE](LICENSE). This covers this fork's own changes (engine rework, control socket,
+shadow GUI, and related docs/scripts); upstream carries no license file of its own, so anything
+inherited from `intelliriffer/EUCLIDIER-CONSOLE` remains subject to whatever terms its author intends
+once clarified.
