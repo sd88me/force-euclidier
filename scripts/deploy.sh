@@ -36,5 +36,5 @@ Start/stop it from the nodeServer Modules page (/moduler) - it's
 AUTOLAUNCHABLE, so it can also be left running at boot from there.
 
 For the touchscreen GUI: install force-shadow separately (see its own
-repo), then open the page with SHIFT+SCENE-6.
+repo), then open the page with SHIFT+SCENE-7.
 EOF

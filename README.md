@@ -26,7 +26,7 @@ else is running on the Force.
 
 ## Screenshots
 
-The shadow-mode GUI page (Akai Force touchscreen, `SHIFT+SCENE-6`), three tabs:
+The shadow-mode GUI page (Akai Force touchscreen, `SHIFT+SCENE-7`), three tabs:
 
 | LANES | DETAIL | PRESETS |
 |---|---|---|
@@ -65,7 +65,7 @@ The shadow-mode GUI page (Akai Force touchscreen, `SHIFT+SCENE-6`), three tabs:
 ### Touchscreen GUI (shadow mode)
 
 A full editor page for the Force's own touchscreen, rendered by
-[`force-shadow`](https://github.com/sd88me/force-shadow): open it with `SHIFT+SCENE-6`. Three tabs,
+[`force-shadow`](https://github.com/sd88me/force-shadow): open it with `SHIFT+SCENE-7`. Three tabs,
 plus a top-bar engine on/off pill and BPM readout.
 
 | Tab | Contents |
@@ -186,7 +186,7 @@ single `AUTOLAUNCHABLE` binary, so start/stop it (and optionally leave it runnin
 MockbaMod's nodeServer Modules page (`/moduler`) directly.
 
 For the shadow GUI: install [force-shadow](https://github.com/sd88me/force-shadow) separately, then
-open the page with `SHIFT+SCENE-6`.
+open the page with `SHIFT+SCENE-7`.
 
 ## Building from source
 
