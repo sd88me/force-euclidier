@@ -62,20 +62,17 @@ The shadow-mode GUI page (Akai Force touchscreen, `SHIFT+SCENE-6`), three tabs:
 
 ## Using Euclidier
 
-### Shadow GUI (Akai Force)
+### Touchscreen GUI (shadow mode)
 
-Open the page with `SHIFT+SCENE-6`. Three tabs, plus a top-bar engine on/off pill and BPM readout:
+A full editor page for the Force's own touchscreen, rendered by
+[`force-shadow`](https://github.com/sd88me/force-shadow): open it with `SHIFT+SCENE-6`. Three tabs,
+plus a top-bar engine on/off pill and BPM readout.
 
-- **LANES** — all 8 lanes as compact rows: enable toggle, step strip, and a live pattern readout.
-  Tap a step cell to toggle it on/off directly (a manual override on top of the generated Euclidean
-  pattern); tap anywhere else in a row to select that lane for the DETAIL tab. Manual step edits are
-  overwritten the next time you change that lane's steps/fill/shift/loop/division — same as any
-  Euclidean generator with manual overrides layered on top.
-- **DETAIL** — the selected lane's full parameter set as a ring view plus knobs for
-  steps/fill/shift/loop/note/gate/velocity/humanize/channel, a division stepper, and a NOTE/DRUM
-  switch.
-- **PRESETS** — one page of 56 preset slots (load/save), and a randomizer: tap any combination of the
-  8 lane buttons, then RANDOMIZE. Leave none selected to randomize all 8 lanes at once.
+| Tab | Contents |
+|-----|----------|
+| LANES | All 8 lanes as compact rows: enable toggle, step strip, and a live pattern readout. Tap a step cell to toggle it on/off directly (a manual override on top of the generated Euclidean pattern); tap anywhere else in a row to select that lane for the DETAIL tab. Manual step edits are overwritten the next time you change that lane's steps/fill/shift/loop/division — same as any Euclidean generator with manual overrides layered on top |
+| DETAIL | The selected lane's full parameter set as a ring view plus knobs for steps/fill/shift/loop/note/gate/velocity/humanize/channel, a division stepper, and a NOTE/DRUM switch |
+| PRESETS | One page of 56 preset slots (load/save), and a randomizer: tap any combination of the 8 lane buttons, then RANDOMIZE. Leave none selected to randomize all 8 lanes at once |
 
 **Known limits:** the PRESETS list only shows slots 1–56 of the full 128-slot bank (one screen's
 worth); reach slots 57–128 over MIDI (CC 20 select, CC 29 load, CC 30 save, or Program Change).
@@ -170,12 +167,26 @@ step counts for longer patterns, and try a loop point a few steps past the total
 
 ## Installation
 
-1. Build (see below) or download a prebuilt `euclidier` binary for armhf.
-2. Copy `euclidier`, `addon/NSMODULE.json`, and (if using the GUI) `addon/shadow_page.conf` into
-   `AddOns/Euclidier/` on the device.
-3. Launch via MockbaMod's nodeServer web UI, or bind a launch script/combo to run
-   `AddOns/Euclidier/euclidier -v --ctrl-sock /tmp/euclidier_ctrl.sock`.
-4. For the shadow GUI: install force-shadow separately, then open the page with `SHIFT+SCENE-6`.
+```bash
+build/build.sh                    # -> bin/euclidier
+scripts/deploy.sh root@<force-ip> # copies it + NSMODULE.json + shadow_page.conf into AddOns/Euclidier/
+```
+
+This is equivalent to, and replaces, manually running:
+
+```
+ssh root@<force-ip> "mkdir -p /media/662522/AddOns/Euclidier"
+scp bin/euclidier root@<force-ip>:/media/662522/AddOns/Euclidier/euclidier
+scp addon/NSMODULE.json root@<force-ip>:/media/662522/AddOns/Euclidier/NSMODULE.json
+scp addon/shadow_page.conf root@<force-ip>:/media/662522/AddOns/Euclidier/shadow_page.conf
+```
+
+Unlike this project's sibling addons, Euclidier has no `manage.sh ENABLE`/`DISABLE` step — it's a
+single `AUTOLAUNCHABLE` binary, so start/stop it (and optionally leave it running at boot) from
+MockbaMod's nodeServer Modules page (`/moduler`) directly.
+
+For the shadow GUI: install [force-shadow](https://github.com/sd88me/force-shadow) separately, then
+open the page with `SHIFT+SCENE-6`.
 
 ## Building from source
 
