@@ -21,13 +21,23 @@
  *                                             VST MIDI-out plumbing needed here
  *
  * So processReplacing()'s only job is feeding a synthesized MIDI clock into the
- * child's ALSA port; parameter get/set is short blocking request/reply calls on
- * the engine's existing control-socket protocol (euclidier.cpp's ctrlGet/ctrlSet),
- * off the audio thread (JUCE calls setParameter/getParameter from its own message
- * thread, not processReplacing).
+ * child's ALSA port. Parameter get/set do NOT talk to the socket synchronously:
+ * setParameter()/getParameter()/effGetParamDisplay() only touch an in-memory
+ * per-instance cache (nothing else ever changes these values but us, so the
+ * cache is authoritative), and every actual "SET key val" round-trip happens on
+ * a dedicated worker thread (coalesced -- rapid Q-Link nudges collapse to the
+ * latest value per key). This mirrors the repo's own rule for app-style plugins
+ * ("never block the audio thread... network/disk go on a worker thread", see
+ * force-cratedigger and mpc-vst-plugins docs/NOTES.md "Beyond synths"), just
+ * applied to setParameter/getParameter instead of processReplacing: a first cut
+ * that did the socket round-trip inline measured WARN (worst p99 15.7%) on a
+ * Q-Link sweep purely from blocking connect/send/recv syscalls, none of it real
+ * work -- moving it off is the fix (docs/PORTING.md "Bench" + this file's own
+ * bench run, 2026-09-24).
  * ========================================================================== */
 #include <atomic>
 #include <cmath>
+#include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -35,6 +45,7 @@
 #include <string>
 #include <thread>
 #include <chrono>
+#include <unordered_map>
 #include <vector>
 
 #include <fcntl.h>
@@ -141,7 +152,6 @@ struct Plugin {
     audioMasterCallback master;
     std::string sockpath;
     pid_t child = -1;
-    std::mutex lock;               /* serialises requests to the child */
     volatile char release[NPARAMS] = {0};
     double last_ppq = 0.0;
     bool was_playing = false;
@@ -151,6 +161,16 @@ struct Plugin {
     int dest_client = -1, dest_port = -1;
 #endif
     char chunk[4096] = {0};
+
+    /* Cache + async worker: setParameter/getParameter/effGetParamDisplay only
+     * ever touch `cache` (see file header comment). */
+    std::atomic<float> cache[NPARAMS];
+    std::thread io_thread;
+    std::mutex qmu;
+    std::condition_variable qcv;
+    std::unordered_map<std::string, std::string> pending; /* key -> value string, coalesced */
+    bool want_refresh = false;
+    bool stop_io = false;
 };
 
 static float clamp01(float v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
@@ -171,12 +191,51 @@ static float str_to_norm(const param_t *p, const std::string &s) {
     }
     return p->max > p->min ? clamp01((float)((std::atof(s.c_str()) - p->min) / (p->max - p->min))) : 0.0f;
 }
-static float get_norm(Plugin *w, int i) {
+/* Blocking GET, used only off the hot path: initial cache fill and the worker
+ * thread's post-trigger refresh (see io_worker). Never called from
+ * setParameter/getParameter/effGetParamDisplay. */
+static float get_norm_blocking(const std::string &sockpath, int i) {
     std::string reply;
-    std::lock_guard<std::mutex> lk(w->lock);
-    if (!ctrl_request(w->sockpath, "GET " + std::string(PARAMS[i].key), reply) || reply == "ERR")
+    if (!ctrl_request(sockpath, "GET " + std::string(PARAMS[i].key), reply) || reply == "ERR")
         return PARAMS[i].def;
     return str_to_norm(&PARAMS[i], reply);
+}
+
+/* ---------------------------------------------------------------------------
+ * Async worker: drains coalesced SET requests and, after a trigger (preset
+ * load/save, randomize -- anything that changes engine state on its own, not
+ * just the one key SET), re-GETs every param to catch what the engine changed
+ * behind our back. Runs entirely off setParameter/getParameter's caller thread.
+ * ------------------------------------------------------------------------- */
+static void io_worker(Plugin *w) {
+    std::unique_lock<std::mutex> lk(w->qmu);
+    for (;;) {
+        w->qcv.wait(lk, [w] { return w->stop_io || !w->pending.empty() || w->want_refresh; });
+        if (w->stop_io) return;
+        auto todo = std::move(w->pending);
+        w->pending.clear();
+        bool refresh = w->want_refresh;
+        w->want_refresh = false;
+        lk.unlock();
+
+        for (auto &kv : todo) {
+            std::string reply;
+            ctrl_request(w->sockpath, "SET " + kv.first + " " + kv.second, reply);
+        }
+        if (refresh) {
+            for (int i = 0; i < NPARAMS; i++) {
+                if (PARAMS[i].momentary) continue;
+                w->cache[i].store(get_norm_blocking(w->sockpath, i));
+            }
+        }
+        lk.lock();
+    }
+}
+static void queue_set(Plugin *w, const std::string &key, const std::string &val, bool also_refresh) {
+    std::lock_guard<std::mutex> lk(w->qmu);
+    w->pending[key] = val;
+    if (also_refresh) w->want_refresh = true;
+    w->qcv.notify_one();
 }
 
 /* ---------------------------------------------------------------------------
@@ -320,15 +379,21 @@ static void processReplacing(AEffect *e, float **in, float **out, int32_t n) {
     for (int32_t i = 0; i < n; i++) out[0][i] = out[1][i] = 0.0f;   /* MIDI generator: no audio */
 }
 
+/* True for keys whose SET has side effects on other params inside the engine
+ * (preset_load/preset_save mutate every lane; rand_go re-randomizes whichever
+ * lanes are selected) -- see euclidier.cpp's ctrlSet(). Everything else's SET
+ * only ever touches its own key. */
+static bool triggers_refresh(const char *key) {
+    return !std::strcmp(key, "preset_load") || !std::strcmp(key, "rand_go");
+}
+
 static void setParameter(AEffect *e, int32_t i, float n) {
     Plugin *w = (Plugin *)e->object;
     if (i < 0 || i >= NPARAMS) return;
     const param_t *p = &PARAMS[i];
     if (p->momentary) {
         if (n > 0.5f) {
-            std::string reply;
-            std::lock_guard<std::mutex> lk(w->lock);
-            ctrl_request(w->sockpath, std::string("SET ") + p->key + " 1", reply);
+            queue_set(w, p->key, "1", triggers_refresh(p->key));
             w->release[i] = 1;
         }
         return;
@@ -337,20 +402,23 @@ static void setParameter(AEffect *e, int32_t i, float n) {
     if (p->nopts > 1) {
         float pos = clamp01(n) * (p->nopts - 1);
         if (std::fabs(pos - std::round(pos)) > 0.001f) {
-            float cur = get_norm(w, i) * (p->nopts - 1);
+            float cur = w->cache[i].load() * (p->nopts - 1);
             int idx = (int)std::lround(cur) + (pos > cur ? 1 : -1);
             if (idx < 0) idx = 0;
             if (idx > p->nopts - 1) idx = p->nopts - 1;
             n = (float)idx / (p->nopts - 1);
         }
     }
+    w->cache[i].store(n);
     norm_to_str(p, n, buf, sizeof buf);
-    std::string reply;
-    std::lock_guard<std::mutex> lk(w->lock);
-    ctrl_request(w->sockpath, std::string("SET ") + p->key + " " + buf, reply);
+    queue_set(w, p->key, buf, false);
 }
 
-static float getParameter(AEffect *e, int32_t i) { return get_norm((Plugin *)e->object, i); }
+static float getParameter(AEffect *e, int32_t i) {
+    Plugin *w = (Plugin *)e->object;
+    if (i < 0 || i >= NPARAMS) return 0.0f;
+    return w->cache[i].load();
+}
 
 static intptr_t dispatcher(AEffect *e, int32_t op, int32_t idx, intptr_t v, void *p, float o) {
     Plugin *w = (Plugin *)e->object;
@@ -359,6 +427,9 @@ static intptr_t dispatcher(AEffect *e, int32_t op, int32_t idx, intptr_t v, void
     case effOpen: return 1;
     case effClose:
         alsa_close(w);
+        { std::lock_guard<std::mutex> lk(w->qmu); w->stop_io = true; }
+        w->qcv.notify_one();
+        if (w->io_thread.joinable()) w->io_thread.join();
         if (w->child > 0) { kill(w->child, SIGTERM); int st; waitpid(w->child, &st, 0); }
         delete w;
         return 1;
@@ -380,12 +451,12 @@ static intptr_t dispatcher(AEffect *e, int32_t op, int32_t idx, intptr_t v, void
         const param_t *pp = &PARAMS[idx];
         if (pp->momentary) { copy_str(p, "", 24); return 1; }
         if (pp->nopts) {
-            int k = (int)std::lround(get_norm(w, idx) * (pp->nopts - 1));
+            int k = (int)std::lround(w->cache[idx].load() * (pp->nopts - 1));
             copy_str(p, pp->opts[k], 24);
         } else {
             char buf[32];
             std::snprintf(buf, sizeof buf, "%d",
-                (int)std::lround(pp->min + (pp->max - pp->min) * get_norm(w, idx)));
+                (int)std::lround(pp->min + (pp->max - pp->min) * w->cache[idx].load()));
             copy_str(p, buf, 24);
         }
         return 1;
@@ -395,14 +466,13 @@ static intptr_t dispatcher(AEffect *e, int32_t op, int32_t idx, intptr_t v, void
     case effCanDo:
         return (!std::strcmp((char *)p, "receiveVstTimeInfo")) ? 1 : -1;
     case effGetChunk: {
+        /* From cache -- no socket round-trip, consistent with get/setParameter. */
         std::string s;
         for (int i = 0; i < NPARAMS; i++) {
             if (PARAMS[i].momentary) continue;
-            std::string reply;
-            { std::lock_guard<std::mutex> lk(w->lock);
-              if (!ctrl_request(w->sockpath, std::string("GET ") + PARAMS[i].key, reply)) continue; }
-            if (reply == "ERR") continue;
-            s += PARAMS[i].key; s += '='; s += reply; s += ';';
+            char buf[32];
+            norm_to_str(&PARAMS[i], w->cache[i].load(), buf, sizeof buf);
+            s += PARAMS[i].key; s += '='; s += buf; s += ';';
         }
         copy_str(w->chunk, s, sizeof w->chunk);
         *(void **)p = w->chunk;
@@ -412,14 +482,17 @@ static intptr_t dispatcher(AEffect *e, int32_t op, int32_t idx, intptr_t v, void
         if (v <= 0 || (size_t)v > sizeof w->chunk) return 0;
         std::memcpy(w->chunk, p, (size_t)v);
         w->chunk[v - 1] = 0;
-        std::lock_guard<std::mutex> lk(w->lock);
         char *s = w->chunk, *save = nullptr;
         for (char *tok = strtok_r(s, ";", &save); tok; tok = strtok_r(nullptr, ";", &save)) {
             char *eq = std::strchr(tok, '=');
             if (!eq) continue;
             *eq = 0;
-            std::string reply;
-            ctrl_request(w->sockpath, std::string("SET ") + tok + " " + (eq + 1), reply);
+            for (int i = 0; i < NPARAMS; i++) {
+                if (std::strcmp(PARAMS[i].key, tok) != 0) continue;
+                w->cache[i].store(str_to_norm(&PARAMS[i], eq + 1));
+                queue_set(w, PARAMS[i].key, eq + 1, false);
+                break;
+            }
         }
         return 1;
     }
@@ -435,8 +508,15 @@ extern "C" __attribute__((visibility("default"))) AEffect *VSTPluginMain(audioMa
     char sp[64];
     std::snprintf(sp, sizeof sp, "/tmp/euclidier_vst_%d_%d.sock", (int)getpid(), n);
     w->sockpath = sp;
+    for (int i = 0; i < NPARAMS; i++) w->cache[i].store(PARAMS[i].def);
     spawn_engine(w);
     alsa_open(w);
+    /* one-time blocking fill at load (counts against open time, not per-block
+     * budget -- bench.sh measured "open 1105.6 ms" already, see this file's
+     * header comment); every SET/GET after this is cache-only + async. */
+    for (int i = 0; i < NPARAMS; i++)
+        if (!PARAMS[i].momentary) w->cache[i].store(get_norm_blocking(w->sockpath, i));
+    w->io_thread = std::thread(io_worker, w);
 
     AEffect *e = &w->fx;
     std::memset(e, 0, sizeof *e);
