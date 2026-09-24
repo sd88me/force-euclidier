@@ -167,6 +167,13 @@ step counts for longer patterns, and try a loop point a few steps past the total
 
 ## Installation
 
+**From a release (no build needed):** download `Euclidier-<version>.zip` from the Releases page
+(under *Assets*, not the "Source code" archives) and unzip it onto the SD card root, overwriting the
+old files in `AddOns/Euclidier`. Your saved presets (`euclidierBANK.bin`) aren't in the zip, so
+they're kept. Then start it from the nodeServer Modules page as below.
+
+**From a checkout:**
+
 ```bash
 build/build.sh                    # -> bin/euclidier
 scripts/deploy.sh root@<force-ip> # copies it + NSMODULE.json + shadow_page.conf into AddOns/Euclidier/
