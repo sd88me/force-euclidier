@@ -14,13 +14,12 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 MPC_VST="${MPC_VST:-../../mpc-vst}"
-FORCE_SHADOW="${FORCE_SHADOW:-../../force-shadow}"
 U="$(id -u):$(id -g)"
 mkdir -p build
 
-# 1. skin artwork renderer (host binary; needs force-shadow's render_conf_preview.c)
-docker run --rm -u "$U" -v "$PWD":/w -v "$MPC_VST":/mv:ro -v "$FORCE_SHADOW":/fs:ro -w /w gcc:12 \
-  gcc -O2 -I/fs/tools -o build/shadow_art /mv/tools/shadow_art.c -lm
+# 1. skin artwork renderer (host binary; mpc-vst's vendored copy of the renderer, tools/vendor/force-shadow)
+docker run --rm -u "$U" -v "$PWD":/w -v "$MPC_VST":/mv:ro -w /w gcc:12 \
+  gcc -O2 -I/mv/tools/vendor/force-shadow/tools -o build/shadow_art /mv/tools/shadow_art.c -lm
 
 # 2. params.h, skin, pluginlist-entry.xml (needs Pillow, for the offline skin preview)
 docker run --rm -u "$U" -v "$PWD":/w -v "$MPC_VST":/mv:ro -w /w python:3.11-slim sh -c \
