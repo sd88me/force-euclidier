@@ -1,3 +1,8 @@
+> **This repository is archived.** Euclidier now lives in
+> [sd88me/mpc-vst-euclidier](https://github.com/sd88me/mpc-vst-euclidier): a native plugin for Akai MPC OS devices
+> (Force, MPC Live / One / X / Key) with the sequencer engine, its documentation and the releases. Nothing here is
+> maintained any more.
+
 # Euclidier (Force Shadow Fork)
 
 An 8-lane MIDI Euclidean note/CC sequencer for Akai Force / MPC (MockbaMod).
